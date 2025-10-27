@@ -1,3 +1,7 @@
+# Lab1
+
+<img width="858" height="421" alt="image" src="https://github.com/user-attachments/assets/ca31e74a-25e4-46f6-8655-70bb5d4184c7" />
+
 # 简介
 
 本仓库为 USTC 编译工程 2025 的课程实验仓库。在本学期的编译实验中，你们将构建一个从词法分析器开始到后端代码生成的JIANMU编译器。
