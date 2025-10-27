@@ -13,7 +13,7 @@
 // 注意使用这里的接口
 #define _STR_EQ(a, b) (strcmp((a), (b)) == 0)
 
-void AST::run_visitor(ASTVisitor &visitor) { root->accept(visitor); }
+void AST::run_visitor(ASTVisitor &visitor) { root->accept(visitor); }//是访问者模式遍历 AST 并输出的接口，本次实验测试会用到，但是实现时不会用到
 
 AST::AST(syntax_tree *s) {
   if (s == nullptr) {
@@ -37,7 +37,7 @@ ASTNode *AST::transform_node_iter(syntax_tree_node *n) {
 
     // flatten declaration list
     std::stack<syntax_tree_node *>
-        s; // 为什么这里要用stack呢？如果用其他数据结构应该如何实现
+        s; // 为什么这里要用stack呢？如果用其他数据结构应该如何实现;stack是为了反向恢复正确的顺序,不用stack可以用vector
     auto list_ptr = n->children[0];
     while (list_ptr->children_num == 2) {
       s.push(list_ptr->children[1]);
@@ -48,8 +48,8 @@ ASTNode *AST::transform_node_iter(syntax_tree_node *n) {
     while (!s.empty()) {
       auto child_node =
           static_cast<ASTDeclaration *>(transform_node_iter(s.top()));
-
-      auto child_node_shared = std::shared_ptr<ASTDeclaration>(child_node);
+          //对每个语法树中的声明节点，递归调用 transform_node_iter()，生成一个 AST 声明节点；
+      auto child_node_shared = std::shared_ptr<ASTDeclaration>(child_node);//统一管理内存
       node->declarations.push_back(child_node_shared);
       s.pop();
     }
@@ -58,9 +58,10 @@ ASTNode *AST::transform_node_iter(syntax_tree_node *n) {
     return transform_node_iter(n->children[0]);
   } else if (_STR_EQ(n->name, "var-declaration")) {
     auto node = new ASTVarDeclaration();
-    // NOTE: 思考 ASTVarDeclaration的结构，需要填充的字段有哪些
+    // NOTE: 思考 ASTVarDeclaration的结构，需要填充的字段有哪些 type；id；nums（数组大小）
     // type
     // 为什么不会有 TYPE_VOID?
+    //C语言中void类型是非法的
     if (_STR_EQ(n->children[0]->children[0]->name, "int"))
       node->type = TYPE_INT;
     else

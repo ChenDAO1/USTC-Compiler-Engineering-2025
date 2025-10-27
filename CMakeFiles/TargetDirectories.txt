@@ -1,0 +1,3 @@
+/home/alkaid/code/USTC-Compiler-Engineering-2025/CMakeFiles/Clangd_Test.dir
+/home/alkaid/code/USTC-Compiler-Engineering-2025/CMakeFiles/edit_cache.dir
+/home/alkaid/code/USTC-Compiler-Engineering-2025/CMakeFiles/rebuild_cache.dir

@@ -50,5 +50,6 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR})
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_BINARY_DIR})
+find_package(ZLIB REQUIRED)
 add_subdirectory(src)
 add_subdirectory(tests)
