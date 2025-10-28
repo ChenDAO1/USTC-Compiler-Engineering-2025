@@ -1,6 +1,6 @@
 # Lab1
 
-![Uploading image.png…]()
+<img width="899" height="475" alt="image" src="https://github.com/user-attachments/assets/82b0433e-63a7-41d4-8f4f-de8fcb23a798" />
 
 # 简介
 
