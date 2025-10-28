@@ -63,7 +63,7 @@ Value* CminusfBuilder::visit(ASTVarDeclaration &node) {
     if (is_array) {
         auto *arr_type = ArrayType::get(element_type, node.num->i_val);
         
-        if (scope.in_global()) {
+        if (context.func == nullptr) {
             auto *zero_init = ConstantZero::get(arr_type, module.get());
             auto *global_arr = GlobalVariable::create(node.id, module.get(), arr_type, false, zero_init);
             scope.push(node.id, global_arr);
@@ -72,7 +72,7 @@ Value* CminusfBuilder::visit(ASTVarDeclaration &node) {
             scope.push(node.id, local_arr);
         }
     } else {
-        if (scope.in_global()) {
+        if (context.func == nullptr) {
             auto *zero_init = ConstantZero::get(element_type, module.get());
             auto *global_var = GlobalVariable::create(node.id, module.get(), element_type, false, zero_init);
             scope.push(node.id, global_var);
@@ -119,7 +119,7 @@ Value* CminusfBuilder::visit(ASTFunDeclaration &node) {
         auto* param_i = node.params[i]->accept(*this);
         args[i]->set_name(node.params[i]->id);
         builder->create_store(args[i], param_i);
-        scope.push(node.params[i]->id, param_i);
+        scope.push(args[i]->get_name(), param_i);
     }
     node.compound_stmt->accept(*this);
     
@@ -186,81 +186,69 @@ Value* CminusfBuilder::visit(ASTExpressionStmt &node) {
 }
 
 Value* CminusfBuilder::visit(ASTSelectionStmt &node) {
-    // TODO: This function is empty now.
-    // Add some code here.
-    auto loop_condition_bb = BasicBlock::create(module.get(), "", context.func);
-    auto loop_body_bb = BasicBlock::create(module.get(), "", context.func);
-    auto loop_exit_bb = BasicBlock::create(module.get(), "", context.func);
-
-    auto *current_block = builder->get_insert_block();
-    if (current_block && !current_block->is_terminated()) {
-        builder->create_br(loop_condition_bb);
-    }
-
-    builder->set_insert_point(loop_condition_bb);
-    auto *condition_result = node.expression->accept(*this);
-    
-    Value *boolean_condition;
-    if (condition_result->get_type()->is_integer_type()) {
-        boolean_condition = builder->create_icmp_ne(condition_result, CONST_INT(0));
+    auto *ret_val = node.expression->accept(*this);
+    auto *trueBB = BasicBlock::create(module.get(), "", context.func);
+    BasicBlock *falseBB{};
+    auto *contBB = BasicBlock::create(module.get(), "", context.func);
+    Value *cond_val = nullptr;
+    if (ret_val->get_type()->is_integer_type()) {
+        cond_val = builder->create_icmp_ne(ret_val, CONST_INT(0));
     } else {
-        boolean_condition = builder->create_fcmp_ne(condition_result, CONST_FP(0.));
+        cond_val = builder->create_fcmp_ne(ret_val, CONST_FP(0.));
     }
-    builder->create_cond_br(boolean_condition, loop_body_bb, loop_exit_bb);
 
-    builder->set_insert_point(loop_body_bb);
-
+    if (node.else_statement == nullptr) {
+        builder->create_cond_br(cond_val, trueBB, contBB);
+    } else {
+        falseBB = BasicBlock::create(module.get(), "", context.func);
+        builder->create_cond_br(cond_val, trueBB, falseBB);
+    }
+    builder->set_insert_point(trueBB);
     node.if_statement->accept(*this);
-    auto *body_exit_block = builder->get_insert_block();
-    if (body_exit_block && !body_exit_block->is_terminated()) {
-        builder->create_br(loop_condition_bb);
+
+    if (not builder->get_insert_block()->is_terminated()) {
+        builder->create_br(contBB);
     }
 
-    builder->set_insert_point(loop_exit_bb);
+    if (node.else_statement == nullptr) {
+        // falseBB->erase_from_parent(); // did not clean up memory
+    } else {
+        builder->set_insert_point(falseBB);
+        node.else_statement->accept(*this);
+        if (not builder->get_insert_block()->is_terminated()) {
+            builder->create_br(contBB);
+        }
+    }
+
+    builder->set_insert_point(contBB);
     return nullptr;
 }
 
 Value* CminusfBuilder::visit(ASTIterationStmt &node) {
     // TODO: This function is empty now.
     // Add some code here.
-    auto *cur_func = context.func;
-
-    auto *cond_block = BasicBlock::create(module.get(), "while.cond", cur_func);
-    auto *body_block = BasicBlock::create(module.get(), "while.body", cur_func);
-    auto *exit_block = BasicBlock::create(module.get(), "while.end", cur_func);
-
-    if (!builder->get_insert_block()->is_terminated()) {
-        builder->create_br(cond_block);
-    }
-
-
-    builder->set_insert_point(cond_block);
-
-    auto *raw_cond = node.expression->accept(*this);
-
-
-    Value *bool_cond = nullptr;
-    if (raw_cond->get_type()->is_float_type()) {
-        auto *zero_fp = CONST_FP(0.0);
-        bool_cond = builder->create_fcmp_ne(raw_cond, zero_fp);
+    auto *curFunc = context.func;
+    auto *condBlock = BasicBlock::create(module.get(), "", curFunc);
+    auto *loopBlock = BasicBlock::create(module.get(), "", curFunc);
+    auto *exitBlock = BasicBlock::create(module.get(), "", curFunc);
+    builder->create_br(condBlock);
+    builder->set_insert_point(condBlock);
+    auto *condValue = node.expression->accept(*this);
+    Value *condBool = nullptr;
+    if (condValue->get_type()->is_integer_type()) {
+        condBool = builder->create_icmp_ne(condValue, CONST_INT(0));
     } else {
-        auto *zero_int = CONST_INT(0);
-        bool_cond = builder->create_icmp_ne(raw_cond, zero_int);
+        condBool = builder->create_fcmp_ne(condValue, CONST_FP(0.));
     }
-
-    builder->create_cond_br(bool_cond, body_block, exit_block);
-
-
-    builder->set_insert_point(body_block);
+    builder->create_cond_br(condBool, loopBlock, exitBlock);
+    builder->set_insert_point(loopBlock);
     node.statement->accept(*this);
-
     if (!builder->get_insert_block()->is_terminated()) {
-        builder->create_br(cond_block);
+        builder->create_br(condBlock);
     }
-
-    builder->set_insert_point(exit_block);
-
+    builder->set_insert_point(exitBlock);
     return nullptr;
+
 }
 
 Value* CminusfBuilder::visit(ASTReturnStmt &node) {
@@ -270,12 +258,10 @@ Value* CminusfBuilder::visit(ASTReturnStmt &node) {
         auto *fun_ret_type =
             context.func->get_function_type()->get_return_type();
         auto *ret_val = node.expression->accept(*this);
-        if (fun_ret_type != ret_val->get_type()) {
-            if (fun_ret_type->is_integer_type()) {
-                ret_val = builder->create_fptosi(ret_val, INT32_T);
-            } else {
-                ret_val = builder->create_sitofp(ret_val, FLOAT_T);
-            }
+        if (fun_ret_type->is_integer_type() && ret_val->get_type()->is_float_type()) {
+            ret_val = builder->create_fptosi(ret_val, INT32_T);
+        } else if (fun_ret_type->is_float_type() && ret_val->get_type()->is_integer_type()) {
+            ret_val = builder->create_sitofp(ret_val, FLOAT_T);
         }
         builder->create_ret(ret_val);
     }
@@ -283,19 +269,16 @@ Value* CminusfBuilder::visit(ASTReturnStmt &node) {
 }
 
 Value* CminusfBuilder::visit(ASTVar &node) {
-    Value* var = this->scope.find(node.id);
-    if (var->is<Function>()) {
-        return var;
-    }
+    Value* baseAddr = this->scope.find(node.id);
+    Type* alloctype = nullptr;
     
-    Type* var_alloc_type;
-    if (var->is<AllocaInst>()) {
-        var_alloc_type = var->as<AllocaInst>()->get_alloca_type();
-    } else { // GlobalVariable
-        var_alloc_type = var->as<GlobalVariable>()->get_type()->get_pointer_element_type();
+    if(baseAddr->is<AllocaInst>()) {
+        alloctype = baseAddr->as<AllocaInst>()->get_alloca_type();
+    } else {
+        alloctype = baseAddr->as<GlobalVariable>()->get_type()->get_pointer_element_type();
     }
 
-    if(node.expression) { // Array access
+    if(node.expression) {
         bool original_require_lvalue = context.require_lvalue;
         context.require_lvalue = false;
         auto idx = node.expression->accept(*this);
@@ -315,34 +298,40 @@ Value* CminusfBuilder::visit(ASTVar &node) {
         auto wrong = scope.find("neg_idx_except");
         builder->set_insert_point(wrong_bb);
         builder->create_call(wrong, {});
-        if (!builder->get_insert_block()->is_terminated())
-             builder->create_br(right_bb);
+        builder->create_br(right_bb);
         builder->set_insert_point(right_bb);
         
-        Value* elem_ptr;
-        if(var_alloc_type->is_pointer_type()) {
-            auto loaded_ptr = builder->create_load(var);
-            elem_ptr = builder->create_gep(loaded_ptr,{idx});
-        } else { // is_array_type
-            elem_ptr = builder->create_gep(var,{CONST_INT(0),idx});
-        }
-
         if(context.require_lvalue) {
+            if(alloctype->is_pointer_type()) {
+                baseAddr = builder->create_load(baseAddr);
+                baseAddr = builder->create_gep(baseAddr,{idx});
+            } else if(alloctype->is_array_type()){ 
+                baseAddr = builder->create_gep(baseAddr,{CONST_INT(0),idx});
+            }
             context.require_lvalue = false;
-            return elem_ptr;
+            return baseAddr;
         } else {
-            return builder->create_load(elem_ptr);
+            if(alloctype->is_pointer_type()){
+                baseAddr = builder->create_load(baseAddr);
+                baseAddr = builder->create_gep(baseAddr,{idx});
+            } else if(alloctype->is_array_type()){ 
+                baseAddr = builder->create_gep(baseAddr,{CONST_INT(0),idx});
+            }
+            baseAddr = builder->create_load(baseAddr);
+            return baseAddr;
         }
-    } else { // Simple variable access
+    } else {
         if (context.require_lvalue) {
             context.require_lvalue = false;
-            return var;
+            return baseAddr;
+            // return builder->create_gep(baseAddr, {CONST_INT(0)});
         } else {
-            if(var_alloc_type->is_array_type()){
-                return builder->create_gep(var, {CONST_INT(0),CONST_INT(0)});
+            if(alloctype->is_array_type()){
+                return builder->create_gep(baseAddr, {CONST_INT(0),CONST_INT(0)});
             } else {
-                return builder->create_load(var);
+                return builder->create_load(baseAddr);
             }
+            
         }
     }
     return nullptr;
